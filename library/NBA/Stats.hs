@@ -14,7 +14,11 @@ module NBA.Stats (
     ResultName,
     Row,
     stat,
+    statEither,
+    statIOEither,
     stats,
+    statsEither,
+    statsIOEither,
     StatsException(..)
 ) where
 
@@ -40,12 +44,26 @@ import qualified Safe
 domain :: SBS.ByteString
 domain = "stats.nba.com"
 
+statsIOEither :: Aeson.FromJSON a => Path -> ResultName -> Parameters -> HTTP.Manager -> IO (Either StatsException [a])
+statsIOEither = statsEither
+
+statsEither :: (Trans.MonadIO i, Catch.MonadCatch i, MonadHTTP.MonadHTTP i, Aeson.FromJSON a) => Path -> ResultName -> Parameters -> HTTP.Manager -> i (Either StatsException [a])
+statsEither path resultName params manager =
+    toEitherStats $ stats path resultName params manager
+
 stats :: (Trans.MonadIO i, Catch.MonadCatch i, MonadHTTP.MonadHTTP i, Catch.MonadThrow m, Aeson.FromJSON a) => Path -> ResultName -> Parameters -> HTTP.Manager -> i (m [a])
 stats path resultName params manager = do
     eitherResponse <- catchHTTP $ get path params manager
     return $ do
         result <- findResult eitherResponse resultName
         Monad.forM (rows result) $ convertTable (columns result)
+
+statIOEither :: (Eq v, Show v, Aeson.FromJSON v, Aeson.FromJSON a) => Path -> ResultName -> Column -> v -> Parameters -> HTTP.Manager -> IO (Either StatsException a)
+statIOEither = statEither
+
+statEither :: (Trans.MonadIO i, Catch.MonadCatch i, MonadHTTP.MonadHTTP i, Eq v, Show v, Aeson.FromJSON v, Aeson.FromJSON a) => Path -> ResultName -> Column -> v -> Parameters -> HTTP.Manager -> i (Either StatsException a)
+statEither path resultName key value params manager =
+    toEitherStats $ stat path resultName key value params manager
 
 stat :: (Trans.MonadIO i, Catch.MonadCatch i, MonadHTTP.MonadHTTP i, Catch.MonadThrow m, Eq v, Show v, Aeson.FromJSON v, Aeson.FromJSON a) => Path -> ResultName -> Column -> v -> Parameters -> HTTP.Manager -> i (m a)
 stat path resultName key value params manager = do
@@ -68,6 +86,13 @@ stat path resultName key value params manager = do
                             Just a -> a == value)
                 (rows result))
         convertTable (columns result) row
+
+toEitherStats :: (Functor f) => f (Either Catch.SomeException a) -> f (Either StatsException a)
+toEitherStats = fmap (\eitherSome -> case eitherSome of
+    Left someE -> case Catch.fromException someE of
+        Just statsE -> Left statsE
+        Nothing -> Left $ OtherException $ show someE
+    Right r -> Right r)
 
 type Column = Text.Text
 
@@ -169,7 +194,8 @@ data StatsException =
     NoMatchingRow String |
     NoValueForRowIndex String |
     NoKeyInColumns String |
-    TableConversionError String
+    TableConversionError String |
+    OtherException String
     deriving (Typeable.Typeable, Eq)
 
 instance Show StatsException where
@@ -183,6 +209,7 @@ instance Show StatsException where
                 NoValueForRowIndex message -> format "NoValueForRowIndex" message
                 NoKeyInColumns message -> format "NoKeyInColumns" message
                 TableConversionError message -> format "TableConversionError" message
+                OtherException message -> message
             format :: String -> String -> String
             format name message = name ++ " " ++ message
 

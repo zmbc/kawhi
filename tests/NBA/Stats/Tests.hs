@@ -127,22 +127,20 @@ propertyStatsExceptionShow constructor exception =
         testName = "show (" ++ exception ++ " message) == \"StatsException (" ++ exception ++ " message)\""
         property message = show (constructor message) == "StatsException (" ++ exception ++ " " ++ message ++ ")"
 
-assertEitherThrown :: Catch.Exception e => Stats.StatsException -> String -> Either e MockModel -> IO ()
+assertEitherThrown :: Stats.StatsException -> String -> Either Stats.StatsException MockModel -> IO ()
 assertEitherThrown exception failureMessage eitherModel =
     case eitherModel of
-        Left someE -> Catch.catch
-            (Catch.throwM someE)
-            (\(e :: Stats.StatsException) -> e @?= exception)
+        Left e -> e @?= exception
         Right (_ :: MockModel) -> HUnit.assertFailure failureMessage
 
-unitStat :: Tasty.TestName -> ByteString.ByteString -> (Either Catch.SomeException MockModel -> IO ()) -> Tasty.TestTree
+unitStat :: Tasty.TestName -> ByteString.ByteString -> (Either Stats.StatsException MockModel -> IO ()) -> Tasty.TestTree
 unitStat = unitStatAssertEither unitStatAction
 
-unitStats :: Tasty.TestName -> ByteString.ByteString -> (Either Catch.SomeException [MockModel] -> IO ()) -> Tasty.TestTree
-unitStats = unitStatAssertEither $ Stats.stats "mockmodels" defaultResultName defaultParams
+unitStats :: Tasty.TestName -> ByteString.ByteString -> (Either Stats.StatsException [MockModel] -> IO ()) -> Tasty.TestTree
+unitStats = unitStatAssertEither $ Stats.statsEither "mockmodels" defaultResultName defaultParams
 
-unitStatAction :: HTTP.Manager -> MonadHTTP.MockHTTP IO (Either Catch.SomeException MockModel)
-unitStatAction = Stats.stat "mockmodels" defaultResultName defaultColumnsKey defaultRowIdentifier defaultParams
+unitStatAction :: HTTP.Manager -> MonadHTTP.MockHTTP IO (Either Stats.StatsException MockModel)
+unitStatAction = Stats.statEither "mockmodels" defaultResultName defaultColumnsKey defaultRowIdentifier defaultParams
 
 unitStatRunAction :: (HTTP.Manager -> MonadHTTP.MockHTTP IO a) -> ByteString.ByteString -> HTTPTypes.Status -> IO a
 unitStatRunAction action responseBody responseStatus = do
